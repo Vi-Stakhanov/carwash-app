@@ -1,5 +1,10 @@
 import streamlit as st
-from fpdf import FPDF
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
 
 st.title("🧮 Расчет стоимости услуг автомойки")
 st.markdown("---")
@@ -25,7 +30,7 @@ ADD_SERVICES = {
     "Сложные био-загрязнения (органика/волосы)": 5000
 }
 
-# 2. Интерфейс выбора параметров
+# 2. Интерфейс выбора параметров автомойки
 st.markdown("### 1. Выберите тип транспорта")
 body_type = st.radio("Тип кузова:", list(BODIES.keys()), horizontal=True)
 
@@ -39,87 +44,106 @@ for op_name, op_price in ADD_SERVICES.items():
     if st.checkbox(f"{op_name} (+{actual_op_price} ₽)"):
         selected_ops.append((op_name, actual_op_price))
 
-st.markdown("### 4. Профессиональная химчистка салона")
-need_dry_clean = st.checkbox("Требуется глубокая химчистка салона")
-dry_clean_price = 0
-if need_dry_clean:
-    dry_clean_price = st.slider(
-        "Оценка степени загрязнения (стоимость химчистки):",
-        min_value=10000,
-        max_value=100000,
-        value=15000,
-        step=5000,
-        format="%d ₽"
-    )
-
-# 3. Калькуляция
+# Калькуляция автомойки
 base_cost = BODIES[body_type]["base_body"] if package_type == "Кузов" else BODIES[body_type]["base_complex"]
 ops_cost = sum(price for name, price in selected_ops)
-total_cost = base_cost + ops_cost + dry_clean_price
+wash_total_cost = base_cost + ops_cost
 
-# Вывод результатов
+# Вывод результатов автомойки
 st.markdown("---")
-st.markdown("### 📋 Предварительная смета:")
+st.markdown("### 📋 Результат расчета мойки:")
 st.write(f"• **Тип авто**: {body_type}")
 st.write(f"• **Тариф ({package_type})**: {base_cost} ₽")
-
 if selected_ops:
     st.write("**Дополнительные работы:**")
     for name, pr in selected_ops:
         st.write(f"  └ {name}: {pr} ₽")
+st.markdown(f"## 💰 **Стоимость мойки: {wash_total_cost} ₽**")
 
-if dry_clean_price > 0:
-    st.write(f"• **Химчистка салона**: {dry_clean_price} ₽")
 
-st.markdown(f"## **Итого к оплате: {total_cost} ₽**")
+# 3. Интерактивный блок химчистки
+st.markdown("---")
+st.markdown("### 🧼 Химчистка")
+activate_dry_clean = st.checkbox("➕ Добавить профессиональную химчистку салона")
 
-# 4. Функция генерации PDF-сметы
-def generate_pdf():
-    # Словарь для быстрой замены русских букв на латинские
-    translit_dict = {
-        'Седан': 'Sedan', 'Кроссовер': 'Krossover', 'Внедорожник': 'Vnedorozhnik',
-        'Микроавтобус': 'Mikroavtobus', 'Автобус': 'Avtobus', 'Грузовой 10т': 'Gruzovoy 10t',
-        'Фура': 'Fura', 'Спецтехника': 'Spectehnika', 'Кузов': 'Kuzov', 'Комплекс': 'Kompleks'
-    }
+dry_clean_price = 0
+if activate_dry_clean:
+    dry_clean_price = st.slider(
+        "Оценка степени загрязнения (стоимость химчистки):",
+        min_value=10000,
+        max_value=100000,
+        value=10000,
+        step=5000,
+        format="%d ₽"
+    )
+    st.markdown(f"## 💰 **Стоимость химчистки: {dry_clean_price} ₽**")
+else:
+    st.info("Химчистка салона не выбрана (стоимость: 0 ₽)")
+
+
+# 4. Функция генерации русского PDF через ReportLab
+def generate_russian_pdf():
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
     
-    # Переводим тип авто и пакет в латиницу
-    pdf_body = translit_dict.get(body_type, body_type)
-    pdf_package = translit_dict.get(package_type, package_type)
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(40, 10, "CarWash Estimate / Schet na uslugi")
-    pdf.ln(10)
-    pdf.set_font("Arial", "", 12)
-    pdf.cell(40, 10, f"Auto type: {pdf_body}")
-    pdf.ln(8)
-    pdf.cell(40, 10, f"Main Package ({pdf_package}): {base_cost} RUR")
-    pdf.ln(8)
-    
-    if selected_ops:
-        pdf.cell(40, 10, "Additional services:")
-        pdf.ln(6)
-        for name, pr in selected_ops:
-            # Для допуслуг просто пишем Option, чтобы не упал шрифт
-            pdf.cell(40, 10, f" - Option: {pr} RUR")
-            pdf.ln(6)
-            
-    if dry_clean_price > 0:
-        pdf.cell(40, 10, f"Dry cleaning salon: {dry_clean_price} RUR")
-        pdf.ln(8)
+    font_path = "C:\\Windows\\Fonts\\arial.ttf"
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont('Arial', font_path))
+        c.setFont('Arial', 14)
+    else:
+        c.setFont('Helvetica', 14)
         
-    pdf.ln(5)
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(40, 10, f"TOTAL PRICE: {total_cost} RUR")
+    c.drawString(100, 750, "📋 Смета на услуги автомоечного комплекса")
+    c.setLineWidth(1)
+    c.line(100, 735, 500, 735)
     
-    return pdf.output()
+    if os.path.exists(font_path):
+        c.setFont('Arial', 12)
+    else:
+        c.setFont('Helvetica', 12)
+        
+    c.drawString(100, 700, f"Тип автомобиля: {body_type}")
+    c.drawString(100, 680, f"Основной пакет ({package_type}): {base_cost} ₽")
+    
+    y = 650
+    if selected_ops:
+        c.drawString(100, y, "Дополнительные работы:")
+        y -= 20
+        for name, price in selected_ops:
+            c.drawString(120, y, f"- {name}: {price} ₽")
+            y -= 20
+            
+    y -= 10
+    if os.path.exists(font_path):
+        c.setFont('Arial', 13)
+    else:
+        c.setFont('Helvetica', 13)
+    c.drawString(100, y, f"ИТОГО ЗА МОЙКУ: {wash_total_cost} ₽")
+    
+    y -= 40
+    if os.path.exists(font_path):
+        c.setFont('Arial', 12)
+    else:
+        c.setFont('Helvetica', 12)
+        
+    if dry_clean_price > 0:
+        c.drawString(100, y, f"Профессиональная химчистка салона: {dry_clean_price} ₽")
+    else:
+        c.drawString(100, y, "Профессиональная химчистка: Не выбрана (0 ₽)")
+        
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
 # Кнопка скачивания PDF
-pdf_data = generate_pdf()
-st.download_button(
-    label="📥 Скачать PDF-смету",
-    data=bytes(pdf_data),
-    file_name="carwash_estimate.pdf",
-    mime="application/pdf"
-)
+st.markdown("---")
+try:
+    pdf_data = generate_russian_pdf()
+    st.download_button(
+        label="📥 Скачать раздельную PDF-смету",
+        data=pdf_data,
+        file_name="carwash_estimate.pdf",
+        mime="application/pdf"
+    )
+except Exception as e:
+    st.error(f"Ошибка генерации PDF: {e}")
