@@ -1,16 +1,17 @@
 import streamlit as st
 import pandas as pd
+import requests
+from datetime import datetime
 
 st.title("💰 Учет смены и расчет зарплаты мойщиков")
 st.markdown("---")
 
-# 1. Блок авторизации (Проверка пароля)
+# 1. Блок авторизации
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.markdown("### 🔒 Доступ ограничен")
-    # Поле ввода скрывает символы точками (type="password")
     input_password = st.text_input("Введите пароль администратора:", type="password")
     
     if st.button("Войти в систему", type="primary"):
@@ -20,18 +21,18 @@ if not st.session_state.authenticated:
             st.rerun()
         else:
             st.error("❌ Неверный пароль! Доступ запрещен.")
-    st.stop() # Полностью останавливает выполнение кода ниже, пока пароль не верный
+    st.stop()
 
-# --- КОД НИЖЕ ВЫПОЛНИТСЯ ТОЛЬКО ПОСЛЕ УСПЕШНОГО ВХОДА ---
-
-# Кнопка «Выйти», чтобы закрыть панель от посторонних глаз
 if st.button("🚪 Выйти из панели управления"):
     st.session_state.authenticated = False
     st.rerun()
 
 st.markdown("---")
 
-# 2. Справочники цен (точно такие же, как в калькуляторе)
+# ВСТАВЬТЕ СЮДА ССЫЛКУ ИЗ GOOGLE APPS SCRIPT (оканчивается на /exec)
+WEB_HOOK_URL = "https://script.google.com/macros/s/AKfycbytO1LyMtVv_LUzJn-lkZovrGmJECzdd2nta3WQ2yp-4tDY-UIgaa5RtTY2ff3z-TfW/exec"
+
+# 2. Справочники цен
 BODIES = {
     "Седан": {"coeff": 1.0, "base_body": 600, "base_complex": 1300},
     "Кроссовер": {"coeff": 1.2, "base_body": 750, "base_complex": 1500},
@@ -52,7 +53,6 @@ ADD_SERVICES = {
     "Сложные био-загрязнения (органика/волосы)": 5000
 }
 
-# 3. Инициализация базы данных смены в памяти
 if "employees" not in st.session_state:
     st.session_state.employees = {
         "Иван Иванов": 0,
@@ -64,7 +64,6 @@ if "employees" not in st.session_state:
 if "history_log" not in st.session_state:
     st.session_state.history_log = []
 
-# Разделение экрана на две колонки
 col1, col2 = st.columns([1.3, 1])
 
 with col1:
@@ -94,7 +93,7 @@ with col1:
     st.markdown(f"**Общий чек заказа (пакет + допы):** {order_total_cost} ₽")
     st.markdown(f"**Начисление сотруднику ({worker_share_pct}%):** {earned_money} ₽")
     
-    if st.button("✅ Зафиксировать работу и начислить", type="primary"):
+    if st.button("✅ Зафиксировать работу и отправить в Google", type="primary"):
         st.session_state.employees[selected_worker] += earned_money
         ops_text = ", ".join(selected_ops_names) if selected_ops_names else "Нет"
         
@@ -106,12 +105,33 @@ with col1:
             "Общий чек": f"{order_total_cost} ₽",
             "Зарплата (30%)": f"{earned_money} ₽"
         })
-        st.success(f"Сотруднику {selected_worker} успешно начислено {earned_money} ₽!")
-        st.rerun()
+        
+        if WEB_HOOK_URL == "ВСТАВЬТЕ_СЮДА_ВАШУ_ССЫЛКУ_EXEC":
+            st.warning("⚠️ Вы не заменили ссылку в коде!")
+        else:
+            try:
+                # Упаковываем данные в JSON-формат
+                payload = {
+                    "dateTime": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                    "worker": selected_worker,
+                    "bodyType": body_type,
+                    "packageType": package_type,
+                    "opsText": ops_text,
+                    "totalCost": f"{order_total_cost} ₽",
+                    "earned": f"{earned_money} ₽"
+                }
+                # Отправляем в Google Таблицу напрямую
+                resp = requests.post(WEB_HOOK_URL, json=payload, timeout=5)
+                if resp.status_code == 200:
+                    st.success("☁️ Заказ мгновенно добавлен в Google Таблицу!")
+                    st.balloons()
+                else:
+                    st.error(f"Сервер скрипта вернул ошибку: {resp.status_code}")
+            except Exception as e:
+                st.error(f"🔴 Ошибка отправки: {e}")
 
 with col2:
     st.markdown("### 📊 Баланс сотрудников за смену")
-    
     df_balances = pd.DataFrame(
         list(st.session_state.employees.items()), 
         columns=["Сотрудник", "Заработано за сегодня"]
@@ -126,10 +146,10 @@ with col2:
         st.rerun()
 
 st.markdown("---")
-st.markdown("### 📋 Журнал выполненных заказов за текущую смену")
+st.markdown("### 📋 Журнал выполненных заказов за текущую смену (Локальный)")
 
 if st.session_state.history_log:
     df_log = pd.DataFrame(st.session_state.history_log)
     st.dataframe(df_log, use_container_width=True)
 else:
-    st.info("За сегодня заказов еще не зафиксировано. Оформите первую работу выше.")
+    st.info("За сегодня заказов еще не зафиксировано.")
