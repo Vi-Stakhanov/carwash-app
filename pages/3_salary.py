@@ -32,9 +32,8 @@ if st.button("🚪 Выйти из панели управления"):
 
 st.markdown("---")
 
-# 2. Функция автоматического определения бизнес-смены с привязкой к часовому поясу Томска (UTC+7)
+# 2. Функция автоматического определения бизнес-смены по времени Томска (UTC+7)
 def get_business_shift_info():
-    # Получаем чистое время сервера UTC и принудительно прибавляем 7 часов для Томска
     utc_now = datetime.utcnow()
     tomsk_now = utc_now + timedelta(hours=7)
     current_hour = tomsk_now.hour
@@ -50,7 +49,6 @@ def get_business_shift_info():
     # Ночная смена (утро следующего дня): с 00:00 до 08:00
     else:
         shift_type = "Ночь"
-        # Заказы после полуночи относятся к вчерашней рабочей смене по часовому поясу Томска
         yesterday = tomsk_now - timedelta(days=1)
         business_date = yesterday.strftime("%d.%m.%Y")
         
@@ -98,7 +96,6 @@ with col1:
     
     # Выбор работающей сегодня бригады
     selected_brigade = st.selectbox("Текущая бригада (Смена):", ["Смена А", "Смена Б", "Смена В", "Смена Г"])
-    
     selected_worker = st.selectbox("Выберите мойщика:", list(st.session_state.employees.keys()))
     body_type = st.selectbox("Тип кузова авто:", list(BODIES.keys()))
     package_type = st.radio("Пакет услуг:", ["Кузов", "Комплекс"], horizontal=True)
@@ -131,8 +128,10 @@ with col1:
             "Мойщик": selected_worker,
             "Авто": body_type,
             "Услуга": package_type,
-            "Чек": f"{order_total_cost} ₽",
-            "Зарплата": f"{earned_money} ₽"
+            "Доп. услуги": ops_text,
+            "Чек заказа": order_total_cost,
+            "Зарплата": earned_money,
+            "Бригада": selected_brigade
         })
         
         if WEB_HOOK_URL == "ВСТАВЬТЕ_СЮДА_ВАШУ_ССЫЛКУ_EXEC":
@@ -147,12 +146,12 @@ with col1:
                     "opsText": ops_text,
                     "totalCost": f"{order_total_cost} ₽",
                     "earned": f"{earned_money} ₽",
-                    "shiftType": bus_shift,          # Отправляем День/Ночь
-                    "brigade": selected_brigade      # Отправляем бригаду А/Б/В/Г
+                    "shiftType": bus_shift,
+                    "brigade": selected_brigade
                 }
                 resp = requests.post(WEB_HOOK_URL, json=payload, timeout=5)
                 if resp.status_code == 200:
-                    st.success(f"☁️ Заказ для {selected_brigade} ({bus_shift}) успешно отправлен!")
+                    st.success(f"☁️ Заказ для {selected_brigade} успешно отправлен!")
                     st.balloons()
                 else:
                     st.error(f"Ошибка сервера Google: {resp.status_code}")
@@ -175,8 +174,69 @@ with col2:
         st.rerun()
 
 st.markdown("---")
-st.markdown("### 📋 Журнал выполненных заказов за текущую смену (Локальный)")
+st.markdown("### 📋 Общий журнал заказов за текущую смену")
 
 if st.session_state.history_log:
     df_log = pd.DataFrame(st.session_state.history_log)
-    st.dataframe(df_log, use_container_width=True)
+    df_log_display = df_log.copy()
+    df_log_display["Чек заказа"] = df_log_display["Чек заказа"].apply(lambda x: f"{x} ₽")
+    df_log_display["Зарплата"] = df_log_display["Зарплата"].apply(lambda x: f"{x} ₽")
+    st.dataframe(df_log_display, use_container_width=True)
+else:
+    st.info("За сегодня заказов еще не зафиксировано.")
+
+# --- ИНТЕРАКТИВНЫЙ БЛОК: ДЕТАЛИЗАЦИЯ И ИТОГИ ---
+st.markdown("---")
+st.markdown("### 🔍 Персональная проверка и детализация")
+
+if st.session_state.history_log:
+    df_all_orders = pd.DataFrame(st.session_state.history_log)
+    
+    # Создаем список для фильтра с пунктом "Все сотрудники" в самом начале
+    worker_options = ["Все сотрудники"] + list(st.session_state.employees.keys())
+    search_worker = st.selectbox("Выберите сотрудника для детального отчета:", worker_options)
+    
+    # Логика фильтрации данных
+    if search_worker == "Все сотрудники":
+        df_filtered = df_all_orders.copy()
+        total_worker_orders = len(df_filtered)
+        total_worker_salary = df_filtered["Зарплата"].sum()
+        st.info(f"📋 **Общий отчет по смене** — Всего выполнено заказов: **{total_worker_orders}** шт. | Общая выплата по фонду: **{total_worker_salary} ₽**")
+    else:
+        df_filtered = df_all_orders[df_all_orders["Мойщик"] == search_worker]
+        total_worker_orders = len(df_filtered)
+        total_worker_salary = df_filtered["Зарплата"].sum()
+        
+        if not df_filtered.empty:
+            st.success(f"👷 **{search_worker}** — Выполнено заказов: **{total_worker_orders}** шт. | Всего к выплате: **{total_worker_salary} ₽**")
+        else:
+            st.info(f"Сотрудник {search_worker} сегодня еще не приступал к работе.")
+
+    # Если есть данные, строим итоговую таблицу
+    if not df_filtered.empty:
+        sum_check = df_filtered["Чек заказа"].sum()
+        sum_salary = df_filtered["Зарплата"].sum()
+        
+        df_display = df_filtered.copy()
+        df_display["Чек заказа"] = df_display["Чек заказа"].apply(lambda x: f"{x} ₽")
+        df_display["Зарплата"] = df_display["Зарплата"].apply(lambda x: f"{x} ₽")
+        
+        # Создаем итоговую строку
+        summary_row = pd.DataFrame([{
+            "Авто": "🔥 ИТОГО:",
+            "Услуга": "",
+            "Доп. услуги": "",
+            "Чек заказа": f"{sum_check} ₽",
+            "Зарплата": f"{sum_salary} ₽",
+            "Бригада": ""
+        }])
+        
+        if search_worker != "Все сотрудники":
+            df_display = df_display[["Авто", "Услуга", "Доп. услуги", "Чек заказа", "Зарплата", "Бригада"]]
+            df_final_table = pd.concat([df_display, summary_row], ignore_index=True)
+        else:
+            df_display = df_display[["Мойщик", "Авто", "Услуга", "Доп. услуги", "Чек заказа", "Зарплата", "Бригада"]]
+            summary_row["Мойщик"] = ""
+            df_final_table = pd.concat([df_display, summary_row], ignore_index=True)
+            
+        st.table(df_final_table)
