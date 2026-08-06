@@ -32,23 +32,26 @@ if st.button("🚪 Выйти из панели управления"):
 
 st.markdown("---")
 
-# 2. Функция автоматического определения бизнес-смены по времени
+# 2. Функция автоматического определения бизнес-смены с привязкой к часовому поясу Томска (UTC+7)
 def get_business_shift_info():
-    now = datetime.now()
-    current_hour = now.hour
+    # Получаем чистое время сервера UTC и принудительно прибавляем 7 часов для Томска
+    utc_now = datetime.utcnow()
+    tomsk_now = utc_now + timedelta(hours=7)
+    current_hour = tomsk_now.hour
     
     # Дневная смена: с 08:00 до 20:00
     if 8 <= current_hour < 20:
         shift_type = "День"
-        business_date = now.strftime("%d.%m.%Y")
+        business_date = tomsk_now.strftime("%d.%m.%Y")
     # Ночная смена (вечер): с 20:00 до 00:00
     elif current_hour >= 20:
         shift_type = "Ночь"
-        business_date = now.strftime("%d.%m.%Y")
+        business_date = tomsk_now.strftime("%d.%m.%Y")
     # Ночная смена (утро следующего дня): с 00:00 до 08:00
     else:
         shift_type = "Ночь"
-        yesterday = now - timedelta(days=1)
+        # Заказы после полуночи относятся к вчерашней рабочей смене по часовому поясу Томска
+        yesterday = tomsk_now - timedelta(days=1)
         business_date = yesterday.strftime("%d.%m.%Y")
         
     return business_date, shift_type
@@ -137,7 +140,7 @@ with col1:
         else:
             try:
                 payload = {
-                    "dateTime": f"{bus_date} {datetime.now().strftime('%H:%M')}",
+                    "dateTime": f"{bus_date} {(datetime.utcnow() + timedelta(hours=7)).strftime('%H:%M')}",
                     "worker": selected_worker,
                     "bodyType": body_type,
                     "packageType": package_type,
