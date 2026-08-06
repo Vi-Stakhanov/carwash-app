@@ -1,10 +1,13 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 
 st.title("💰 Учет смены и расчет зарплаты мойщиков")
 st.markdown("---")
+
+# ВАЖНО: ВАША АКТУАЛЬНАЯ ССЫЛКА НА GOOGLE APPS SCRIPT (Окачивается на /exec)
+WEB_HOOK_URL = "https://script.google.com/macros/s/AKfycbxy9grZ7ukBJtYNLCI4CQcfDMnSk-kHgO2CWO8k5YyJwBmGhRx-mWsEb4GpDvc4nxuY/exec"
 
 # 1. Блок авторизации
 if "authenticated" not in st.session_state:
@@ -29,10 +32,34 @@ if st.button("🚪 Выйти из панели управления"):
 
 st.markdown("---")
 
-# ВСТАВЬТЕ СЮДА ССЫЛКУ ИЗ GOOGLE APPS SCRIPT (оканчивается на /exec)
-WEB_HOOK_URL = "https://script.google.com/macros/s/AKfycbytO1LyMtVv_LUzJn-lkZovrGmJECzdd2nta3WQ2yp-4tDY-UIgaa5RtTY2ff3z-TfW/exec"
+# 2. Функция автоматического определения бизнес-смены по времени
+def get_business_shift_info():
+    now = datetime.now()
+    current_hour = now.hour
+    
+    # Дневная смена: с 08:00 до 20:00
+    if 8 <= current_hour < 20:
+        shift_type = "День"
+        business_date = now.strftime("%d.%m.%Y")
+    # Ночная смена (вечер): с 20:00 до 00:00
+    elif current_hour >= 20:
+        shift_type = "Ночь"
+        business_date = now.strftime("%d.%m.%Y")
+    # Ночная смена (утро следующего дня): с 00:00 до 08:00
+    else:
+        shift_type = "Ночь"
+        yesterday = now - timedelta(days=1)
+        business_date = yesterday.strftime("%d.%m.%Y")
+        
+    return business_date, shift_type
 
-# 2. Справочники цен
+bus_date, bus_shift = get_business_shift_info()
+
+# Выводим текущий статус смены на боковую панель для администратора
+st.sidebar.markdown("### ⏰ Текущая рабочая смена")
+st.sidebar.info(f"**Бизнес-дата:** {bus_date}\n\n**Тип смены:** {bus_shift}")
+
+# 3. Справочники цен
 BODIES = {
     "Седан": {"coeff": 1.0, "base_body": 600, "base_complex": 1300},
     "Кроссовер": {"coeff": 1.2, "base_body": 750, "base_complex": 1500},
@@ -55,10 +82,7 @@ ADD_SERVICES = {
 
 if "employees" not in st.session_state:
     st.session_state.employees = {
-        "Иван Иванов": 0,
-        "Петр Петров": 0,
-        "Алексей Сидоров": 0,
-        "Марат Сайфуллин": 0
+        "Иван Иванов": 0, "Петр Петров": 0, "Алексей Сидоров": 0, "Марат Сайфуллин": 0
     }
 
 if "history_log" not in st.session_state:
@@ -68,6 +92,9 @@ col1, col2 = st.columns([1.3, 1])
 
 with col1:
     st.markdown("### 🛠️ Добавить выполненную работу")
+    
+    # Выбор работающей сегодня бригады
+    selected_brigade = st.selectbox("Текущая бригада (Смена):", ["Смена А", "Смена Б", "Смена В", "Смена Г"])
     
     selected_worker = st.selectbox("Выберите мойщика:", list(st.session_state.employees.keys()))
     body_type = st.selectbox("Тип кузова авто:", list(BODIES.keys()))
@@ -100,33 +127,32 @@ with col1:
         st.session_state.history_log.append({
             "Мойщик": selected_worker,
             "Авто": body_type,
-            "Основной пакет": package_type,
-            "Доп. услуги": ops_text,
-            "Общий чек": f"{order_total_cost} ₽",
-            "Зарплата (30%)": f"{earned_money} ₽"
+            "Услуга": package_type,
+            "Чек": f"{order_total_cost} ₽",
+            "Зарплата": f"{earned_money} ₽"
         })
         
         if WEB_HOOK_URL == "ВСТАВЬТЕ_СЮДА_ВАШУ_ССЫЛКУ_EXEC":
             st.warning("⚠️ Вы не заменили ссылку в коде!")
         else:
             try:
-                # Упаковываем данные в JSON-формат
                 payload = {
-                    "dateTime": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                    "dateTime": f"{bus_date} {datetime.now().strftime('%H:%M')}",
                     "worker": selected_worker,
                     "bodyType": body_type,
                     "packageType": package_type,
                     "opsText": ops_text,
                     "totalCost": f"{order_total_cost} ₽",
-                    "earned": f"{earned_money} ₽"
+                    "earned": f"{earned_money} ₽",
+                    "shiftType": bus_shift,          # Отправляем День/Ночь
+                    "brigade": selected_brigade      # Отправляем бригаду А/Б/В/Г
                 }
-                # Отправляем в Google Таблицу напрямую
                 resp = requests.post(WEB_HOOK_URL, json=payload, timeout=5)
                 if resp.status_code == 200:
-                    st.success("☁️ Заказ мгновенно добавлен в Google Таблицу!")
+                    st.success(f"☁️ Заказ для {selected_brigade} ({bus_shift}) успешно отправлен!")
                     st.balloons()
                 else:
-                    st.error(f"Сервер скрипта вернул ошибку: {resp.status_code}")
+                    st.error(f"Ошибка сервера Google: {resp.status_code}")
             except Exception as e:
                 st.error(f"🔴 Ошибка отправки: {e}")
 
@@ -151,5 +177,3 @@ st.markdown("### 📋 Журнал выполненных заказов за т
 if st.session_state.history_log:
     df_log = pd.DataFrame(st.session_state.history_log)
     st.dataframe(df_log, use_container_width=True)
-else:
-    st.info("За сегодня заказов еще не зафиксировано.")
