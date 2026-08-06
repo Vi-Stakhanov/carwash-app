@@ -179,8 +179,13 @@ st.markdown("### 📋 Общий журнал заказов за текущую
 if st.session_state.history_log:
     df_log = pd.DataFrame(st.session_state.history_log)
     df_log_display = df_log.copy()
-    df_log_display["Чек заказа"] = df_log_display["Чек заказа"].apply(lambda x: f"{x} ₽")
-    df_log_display["Зарплата"] = df_log_display["Зарплата"].apply(lambda x: f"{x} ₽")
+    
+    # ИСПРАВЛЕНО: Безопасное форматирование только если колонки физически существуют
+    if "Чек заказа" in df_log_display.columns:
+        df_log_display["Чек заказа"] = df_log_display["Чек заказа"].apply(lambda x: f"{x} ₽")
+    if "Зарплата" in df_log_display.columns:
+        df_log_display["Зарплата"] = df_log_display["Зарплата"].apply(lambda x: f"{x} ₽")
+        
     st.dataframe(df_log_display, use_container_width=True)
 else:
     st.info("За сегодня заказов еще не зафиксировано.")
