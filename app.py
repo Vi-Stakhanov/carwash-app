@@ -1,5 +1,8 @@
 import streamlit as st
 
+# 1. Настройка страницы — делаем контент на 100% ширины экрана
+st.set_page_config(layout="wide")
+
 st.set_page_config(
     page_title="Автомойка На Уровне",
     page_icon="🧼",

@@ -6,6 +6,9 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os
 
+# 1. Настройка страницы — делаем контент на 100% ширины экрана
+st.set_page_config(layout="wide")
+
 st.title("🧮 Расчет стоимости услуг автомойки")
 st.markdown("---")
 

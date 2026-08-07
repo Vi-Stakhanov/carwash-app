@@ -3,6 +3,9 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 
+# 1. Настройка страницы — делаем контент на 100% ширины экрана
+st.set_page_config(layout="wide")
+
 st.title("📊 Прогноз потока машин и аналитика погоды (Томск)")
 st.markdown("---")
 
